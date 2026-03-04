@@ -109,7 +109,7 @@ export function RegimeCard({ regime, confidence, symbol, macroRegime, trend15m, 
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span style={{
-                        fontSize: '16px', fontWeight: 700, fontFamily: 'monospace',
+                        fontSize: '22px', fontWeight: 700, fontFamily: 'monospace',
                         color: '#F0F4F8',
                     }}>
                         {btcPrice ? `$${btcPrice.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : '...'}
