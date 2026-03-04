@@ -69,7 +69,7 @@ export default function LandingPage() {
               On Autopilot
             </h1>
             <p className="text-xl text-[var(--color-text-secondary)] mb-8 max-w-3xl mx-auto">
-              Harness the power of automated trading with Sentinel. Execute strategies on CoinDCX and Binance with precision, speed, and confidence.
+              Harness the power of automated trading with Sentinel. Execute strategies on trading platforms with precision, speed, and confidence.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Link
