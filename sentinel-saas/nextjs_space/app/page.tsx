@@ -64,7 +64,7 @@ export default function LandingPage() {
             transition={{ duration: 0.6 }}
           >
             <h1 className="text-5xl md:text-7xl font-bold mb-6">
-              Advanced <span className="text-gradient">Crypto Trading</span>
+              AI Powered <span className="text-gradient">Crypto Trading</span>
               <br />
               On Autopilot
             </h1>
