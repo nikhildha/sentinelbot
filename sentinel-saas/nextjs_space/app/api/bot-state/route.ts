@@ -69,12 +69,12 @@ export async function GET() {
         const coinStates = multi.coin_states || {};
         const allTrades = tradebook.trades || [];
 
-        // Filter trades by user: admin sees all, regular users see only their trades
+        // Filter trades by user: for now, single-engine setup — all authenticated users see all trades
+        // Engine-side user_ids don't match SaaS Prisma user IDs, so we can't filter by userId
         let trades: any[];
-        if (isAdmin) {
+        if (session) {
+            // Authenticated user sees all engine trades
             trades = allTrades;
-        } else if (userId) {
-            trades = allTrades.filter((t: any) => t.user_id === userId);
         } else {
             trades = [];
         }
