@@ -39,6 +39,10 @@ export async function GET(request: NextRequest) {
         const tradebook = readJSON('tradebook.json', { trades: [] });
         let trades: any[] = tradebook.trades || [];
 
+        // Filter by user_id
+        const userId = (session.user as any).id;
+        trades = trades.filter((t: any) => t.user_id === userId);
+
         // Apply filters
         if (statusFilter) {
             trades = trades.filter((t: any) => (t.status || '').toUpperCase() === statusFilter.toUpperCase());

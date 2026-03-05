@@ -71,15 +71,36 @@ export async function GET() {
 
         // Filter trades by user: for now, single-engine setup — all authenticated users see all trades
         // Engine-side user_ids don't match SaaS Prisma user IDs, so we can't filter by userId
+        // Filter trades by user
         let trades: any[];
         if (session) {
-            // Authenticated user sees all engine trades
-            trades = allTrades;
+            // Strictly filter by user_id to prevent data leakage
+            // Trades without user_id are considered "system" or "legacy" and only visible to admin if needed
+            // But for safety, we default to showing ONLY what matches the user ID
+            // If user is admin and wants to see everything, we could add specific logic, 
+            // but the request is about isolation.
+
+            // Note: tradebook trades from engine might have user_id if configured
+            trades = allTrades.filter((t: any) => t.user_id === userId);
+
+            // Fallback: If no trades match user_id (e.g. legacy system), and user is admin, 
+            // maybe we want to show them? For now, strict isolation is safer.
+            // If the admin is running the bot, the bot should be configured with their user_id.
         } else {
             trades = [];
         }
 
         const activeTrades = trades.filter((t: any) => (t.status || '').toUpperCase() === 'ACTIVE');
+
+        // Filter active_positions in multi-state to match the user's active trades
+        // multi.active_positions is keyed by symbol
+        // We only keep symbols that the user has an ACTIVE trade for
+        const userActiveSymbols = new Set(activeTrades.map((t: any) => t.symbol));
+
+        const allActivePositions = multi.active_positions || {};
+        const filteredActivePositions = Object.fromEntries(
+            Object.entries(allActivePositions).filter(([sym, _]) => userActiveSymbols.has(sym))
+        );
 
         return NextResponse.json({
             state: {
@@ -95,9 +116,7 @@ export async function GET() {
                 eligible_count: Object.values(coinStates).filter((c: any) => (c.action || '').includes('ELIGIBLE')).length,
                 deployed_count: multi.deployed_count || 0,
                 total_trades: trades.length,
-                active_positions: Object.fromEntries(
-                    activeTrades.map((t: any) => [t.symbol, t])
-                ),
+                active_positions: filteredActivePositions,
                 coin_states: coinStates,
                 cycle: multi.cycle || 0,
                 timestamp: multi.last_analysis_time || multi.timestamp || null,
