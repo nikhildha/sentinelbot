@@ -7,6 +7,10 @@ import json
 import os
 import logging
 from datetime import datetime
+import logging
+from datetime import datetime
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from data_pipeline import get_current_price
 import config
 import telegram as tg
@@ -14,6 +18,17 @@ import telegram as tg
 logger = logging.getLogger("Tradebook")
 
 TRADEBOOK_FILE = os.path.join(config.DATA_DIR, "tradebook.json")
+
+
+def _get_db_connection():
+    """Get connection to Postgres DB."""
+    if not config.DATABASE_URL:
+        return None
+    try:
+        return psycopg2.connect(config.DATABASE_URL)
+    except Exception as e:
+        logger.error("DB Connection failed: %s", e)
+        return None
 
 
 def _load_book():
@@ -203,6 +218,46 @@ def open_trade(symbol, side, leverage, quantity, entry_price, atr,
     logger.info("📗 Tradebook OPEN: %s %s %s @ %.6f | %dx | Capital: $%.0f",
                 trade_id, position, symbol, entry_price, leverage, capital)
 
+    # ─── DB Sync ─────────────────────────────────────────────────────────────
+    try:
+        conn = _get_db_connection()
+        if conn:
+            with conn.cursor() as cur:
+                # Resolve Bot ID (Use existing bot for user, or default)
+                bot_id = None
+                if user_id:
+                    cur.execute('SELECT id FROM "Bot" WHERE "userId" = %s LIMIT 1', (user_id,))
+                    row = cur.fetchone()
+                    if row:
+                        bot_id = row[0]
+                
+                # If no bot found but we have user_id, maybe create a default bot? 
+                # For now, skip if no bot found to avoid FK violation.
+                # In single-tenant setup, we might assume one bot per user.
+                
+                if bot_id:
+                    # Map fields to Prisma schema
+                    # Schema: id, botId, symbol, side, entryPrice, quantity, leverage, status, mode, regime, confidence, capital, stopLoss, takeProfit
+                    cur.execute("""
+                        INSERT INTO "Trade" (
+                            "id", "botId", "symbol", "side", "entryPrice", "quantity", 
+                            "leverage", "status", "mode", "regime", "confidence",
+                            "capital", "stopLoss", "takeProfit", "createdAt", "updatedAt"
+                        ) VALUES (
+                            %s, %s, %s, %s, %s, %s, 
+                            %s, %s, %s, %s, %s,
+                            %s, %s, %s, NOW(), NOW()
+                        )
+                    """, (
+                        trade_id, bot_id, symbol, side, entry_price, quantity,
+                        leverage, "ACTIVE", mode or "PAPER", regime, float(confidence or 0),
+                        capital, stop_loss, take_profit
+                    ))
+                    conn.commit()
+            conn.close()
+    except Exception as e:
+        logger.error("Failed to sync OPEN trade to DB: %s", e)
+
     return trade_id
 
 
@@ -290,6 +345,73 @@ def close_trade(trade_id=None, symbol=None, exit_price=None, reason="MANUAL"):
     _save_book(book)
 
     return closed[0] if len(closed) == 1 else closed
+
+    # ─── DB Sync ─────────────────────────────────────────────────────────────
+    try:
+        conn = _get_db_connection()
+        if conn:
+            with conn.cursor() as cur:
+                for t in closed:
+                    # Update existing trade
+                    cur.execute("""
+                        UPDATE "Trade"
+                        SET "status" = %s,
+                            "exitPrice" = %s,
+                            "exitTime" = NOW(),
+                            "exitReason" = %s,
+                            "activePnl" = %s,
+                            "activePnlPercent" = %s,
+                            "totalPnl" = %s,
+                            "totalPnlPercent" = %s,
+                            "updatedAt" = NOW()
+                        WHERE "id" = %s
+                    """, (
+                        "CLOSED", t["exit_price"], reason,
+                        0, 0,
+                        t["realized_pnl"], t["realized_pnl_pct"],
+                        t["trade_id"]
+                    ))
+                conn.commit()
+            conn.close()
+    except Exception as e:
+        logger.error("Failed to sync CLOSE trade to DB: %s", e)
+
+    return closed[0] if len(closed) == 1 else closed
+
+
+def reset_book(user_id=None):
+    """
+    Clear tradebook for a specific user (or global if None).
+    Also clears DB records if connected.
+    """
+    book = _load_book()
+    
+    # Filter out trades for this user (if user_id provided)
+    if user_id:
+        new_trades = [t for t in book["trades"] if t.get("user_id") != user_id]
+        book["trades"] = new_trades
+    else:
+        book["trades"] = []
+    
+    _compute_summary(book)
+    _save_book(book)
+    
+    # DB Cleanup
+    try:
+        conn = _get_db_connection()
+        if conn and user_id:
+            with conn.cursor() as cur:
+                # Find bots for user
+                cur.execute('SELECT id FROM "Bot" WHERE "userId" = %s', (user_id,))
+                bots = [r[0] for r in cur.fetchall()]
+                if bots:
+                    # Delete all trades for these bots
+                    cur.execute('DELETE FROM "Trade" WHERE "botId" = ANY(%s)', (bots,))
+                    conn.commit()
+                    logger.info("🗑️ DB Reset: Deleted trades for user %s (Bots: %s)", user_id, bots)
+            conn.close()
+    except Exception as e:
+        logger.error("Failed to reset DB trades: %s", e)
 
 
 def _book_partial_inline(trade, book, exit_price, qty_frac, reason):
@@ -390,6 +512,49 @@ def _book_partial_inline(trade, book, exit_price, qty_frac, reason):
         tg.notify_trade_close(child_trade)
     except Exception:
         pass
+
+    # ─── DB Sync (Child Trade) ───────────────────────────────────────────────
+    try:
+        conn = _get_db_connection()
+        if conn and child_trade.get("user_id"):
+            with conn.cursor() as cur:
+                bot_id = None
+                cur.execute('SELECT id FROM "Bot" WHERE "userId" = %s LIMIT 1', (child_trade["user_id"],))
+                row = cur.fetchone()
+                if row:
+                    bot_id = row[0]
+                
+                if bot_id:
+                    # Insert child trade as CLOSED immediately
+                    cur.execute("""
+                        INSERT INTO "Trade" (
+                            "id", "botId", "symbol", "side", "entryPrice", "quantity", 
+                            "leverage", "status", "mode", "regime", "confidence",
+                            "capital", "stopLoss", "takeProfit", 
+                            "exitPrice", "exitTime", "exitReason", 
+                            "activePnl", "activePnlPercent", "totalPnl", "totalPnlPercent",
+                            "createdAt", "updatedAt"
+                        ) VALUES (
+                            %s, %s, %s, %s, %s, %s, 
+                            %s, %s, %s, %s, %s,
+                            %s, %s, %s,
+                            %s, NOW(), %s,
+                            0, 0, %s, %s,
+                            NOW(), NOW()
+                        )
+                    """, (
+                        child_trade["trade_id"], bot_id, child_trade["symbol"], child_trade["side"], 
+                        child_trade["entry_price"], child_trade["quantity"],
+                        child_trade["leverage"], "CLOSED", child_trade.get("mode", "PAPER"), 
+                        child_trade.get("regime", ""), float(child_trade.get("confidence", 0)),
+                        child_trade["capital"], child_trade["stop_loss"], child_trade["take_profit"],
+                        child_trade["exit_price"], reason,
+                        child_trade["realized_pnl"], child_trade["realized_pnl_pct"]
+                    ))
+                    conn.commit()
+            conn.close()
+    except Exception as e:
+        logger.error("Failed to sync PARTIAL trade to DB: %s", e)
 
     return child_trade
 

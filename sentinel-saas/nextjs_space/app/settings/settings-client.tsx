@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Header } from '@/components/header';
-import { Key, Shield, Sliders, Bell, TrendingUp, Coins, Save, CheckCircle, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { Key, Shield, Sliders, Bell, TrendingUp, Coins, Save, CheckCircle, AlertCircle, ChevronDown, ChevronUp, Lock } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 /* ═══ Default Config (mirrors config.py defaults) ═══ */
@@ -151,6 +151,129 @@ function Row2({ children }: { children: React.ReactNode }) {
 
 function Row3({ children }: { children: React.ReactNode }) {
   return <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>{children}</div>;
+}
+
+function ChangePasswordForm({ onSuccess, onError }: { onSuccess: (m: string) => void; onError: (m: string) => void }) {
+  const [current, setCurrent] = useState('');
+  const [newPass, setNewPass] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async () => {
+    if (!current || !newPass || !confirm) return onError('Please fill in all fields');
+    if (newPass !== confirm) return onError('New passwords do not match');
+    if (newPass.length < 6) return onError('New password must be at least 6 characters');
+
+    setLoading(true);
+    try {
+      const res = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword: current, newPassword: newPass }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        onSuccess('Password updated successfully');
+        setCurrent(''); setNewPass(''); setConfirm('');
+      } else {
+        onError(data.error || 'Failed to update password');
+      }
+    } catch {
+      onError('An error occurred');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3 max-w-md">
+      <Field label="Current Password">
+        <div className="relative">
+          <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+          <input type="password" value={current} onChange={e => setCurrent(e.target.value)}
+            style={{ ...inputStyle, paddingLeft: '34px' }} placeholder="••••••" />
+        </div>
+      </Field>
+      <Field label="New Password">
+        <div className="relative">
+          <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+          <input type="password" value={newPass} onChange={e => setNewPass(e.target.value)}
+            style={{ ...inputStyle, paddingLeft: '34px' }} placeholder="••••••" />
+        </div>
+      </Field>
+      <Field label="Confirm New Password">
+        <div className="relative">
+          <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+          <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)}
+            style={{ ...inputStyle, paddingLeft: '34px' }} placeholder="••••••" />
+        </div>
+      </Field>
+      <button onClick={handleSubmit} disabled={loading}
+        style={{
+          padding: '8px 16px', borderRadius: '8px', border: 'none',
+          background: '#374151', color: '#F3F4F6', fontSize: '13px', fontWeight: 600,
+          cursor: loading ? 'wait' : 'pointer', opacity: loading ? 0.7 : 1
+        }}>
+        {loading ? 'Updating...' : 'Update Password'}
+      </button>
+    </div>
+  );
+}
+
+function ResetTradesButton({ onSuccess }: { onSuccess: (m: string) => void }) {
+  const [loading, setLoading] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+
+  const handleReset = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/reset-trades', { method: 'POST' });
+      if (res.ok) {
+        onSuccess('Paper trades reset successfully');
+        setConfirming(false);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (confirming) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <span style={{ fontSize: '13px', color: '#EF4444', fontWeight: 600 }}>Are you sure?</span>
+        <button onClick={handleReset} disabled={loading}
+          style={{
+            padding: '6px 12px', borderRadius: '6px', border: 'none',
+            background: '#EF4444', color: '#fff', fontSize: '12px', fontWeight: 700,
+            cursor: loading ? 'wait' : 'pointer'
+          }}>
+          {loading ? 'Resetting...' : 'Yes, Delete Everything'}
+        </button>
+        <button onClick={() => setConfirming(false)}
+          style={{
+            padding: '6px 12px', borderRadius: '6px', border: '1px solid #4B5563',
+            background: 'transparent', color: '#9CA3AF', fontSize: '12px', fontWeight: 600,
+            cursor: 'pointer'
+          }}>
+          Cancel
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <button onClick={() => setConfirming(true)}
+      style={{
+        padding: '8px 16px', borderRadius: '8px', border: '1px solid #EF4444',
+        background: 'rgba(239,68,68,0.1)', color: '#EF4444', fontSize: '13px', fontWeight: 600,
+        cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px'
+      }}>
+      <TrendingUp size={14} className="rotate-180" />
+      Reset Paper Trades
+    </button>
+  );
 }
 
 /* ═══════════════════════════════════════════════════════════════════ */
@@ -338,7 +461,7 @@ export function SettingsClient() {
             </div>
           </Section>
 
-          {/* ═══ 6.6 Telegram Notifications ═══ */}
+          {/* ═══ 6.7 Telegram Notifications ═══ */}
           <Section icon={<Bell size={18} color="#8B5CF6" />} title="Telegram Notifications"
             sub="Trade alerts · System alerts · Daily summaries" delay={0.3} defaultOpen={false}>
             <Toggle value={config.telegramEnabled} onChange={v => update({ telegramEnabled: v })} label="Enable Telegram Notifications" />
@@ -357,8 +480,30 @@ export function SettingsClient() {
             )}
           </Section>
 
-          {/* ═══ 6.7 Save Button ═══ */}
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
+          {/* ═══ 6.8 Account Security & Actions ═══ */}
+          <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '2px', color: '#6B7280', marginBottom: '14px', marginTop: '24px' }}>Account Security</div>
+
+          <Section icon={<Lock size={18} color="#F472B6" />} title="Password & Data"
+            sub="Change password · Reset trading data" delay={0.35} defaultOpen={false}>
+
+            {/* Change Password Form */}
+            <div style={{ marginBottom: '32px' }}>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: '#D1D5DB', marginBottom: '12px' }}>Change Password</div>
+              <ChangePasswordForm onSuccess={(msg) => { setMessage({ type: 'success', text: msg }); setTimeout(() => setMessage({ type: '', text: '' }), 4000); }} onError={(msg) => { setMessage({ type: 'error', text: msg }); }} />
+            </div>
+
+            {/* Reset Data Zone */}
+            <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '24px' }}>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: '#EF4444', marginBottom: '8px' }}>Danger Zone</div>
+              <p style={{ fontSize: '12px', color: '#9CA3AF', marginBottom: '16px' }}>
+                Resetting your paper trading account will delete all trade history and close all active positions. This action cannot be undone.
+              </p>
+              <ResetTradesButton onSuccess={(msg) => { setMessage({ type: 'success', text: msg }); setTimeout(() => setMessage({ type: '', text: '' }), 4000); }} />
+            </div>
+          </Section>
+
+          {/* ═══ 6.9 Save Button ═══ */}
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
             <button onClick={handleSave} disabled={saving}
               style={{
                 width: '100%', padding: '16px', borderRadius: '14px', border: 'none',

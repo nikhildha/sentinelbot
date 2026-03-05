@@ -1117,7 +1117,22 @@ class RegimeMasterBot:
                 os.remove(config.COMMANDS_FILE)
 
             elif cmd.get("command") == "RESET":
-                logger.info("🔄 External RESET command received.")
+                logger.info("🔄 External RESET command received (Risk Reset).")
+                self.risk.reset_kill_switch()
+                os.remove(config.COMMANDS_FILE)
+
+            elif cmd.get("command") == "RESET_TRADES":
+                uid = cmd.get("user_id")
+                logger.info("🧹 External RESET_TRADES command received for user %s.", uid)
+                # 1. Close all active positions
+                for sym in list(self._active_positions.keys()):
+                    self.executor.close_all_positions(sym)
+                self._active_positions.clear()
+                
+                # 2. Reset tradebook and DB
+                tradebook.reset_book(user_id=uid)
+                
+                # 3. Reset risk state
                 self.risk.reset_kill_switch()
                 os.remove(config.COMMANDS_FILE)
 

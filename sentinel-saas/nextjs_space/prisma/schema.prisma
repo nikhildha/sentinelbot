@@ -24,6 +24,9 @@ model User {
   referralCode      String?
   phone             String?
   
+  resetToken        String?   @unique
+  resetTokenExpiry  DateTime?
+  
   subscription      Subscription?
   bots              Bot[]
   exchangeApiKeys   ExchangeApiKey[]

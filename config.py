@@ -15,6 +15,9 @@ PAPER_TRADE = True
 ENGINE_USER_ID = "cmmbvbo2l0000j1xo3rqvkfhz"  # Default user for engine trades (admin)
 PAPER_MAX_CAPITAL = 2500       # Total portfolio: 25 slots × $100/trade
 
+# ─── Database ───────────────────────────────────────────────────────────────────
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+
 # ─── CoinDCX API (used for LIVE trading) ────────────────────────────────────────
 COINDCX_API_KEY = os.getenv("COINDCX_API_KEY", "")
 COINDCX_API_SECRET = os.getenv("COINDCX_API_SECRET", "")
